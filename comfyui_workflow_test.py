@@ -18,7 +18,7 @@ def queue_prompt(prompt):
     request.urlopen(req)
 
 
-with open("workflows/basic_api_test.json", "r") as f:
+with open("workflows/generate_image.json", "r") as f:
     prompt = json.load(f)
     #set the text prompt for our positive CLIPTextEncode
     prompt["6"]["inputs"]["text"] = "beautiful scenery nature glass bottle landscape, purple galaxy bottle"

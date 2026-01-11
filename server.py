@@ -107,7 +107,11 @@ class WorkflowManager:
         for param in definition.parameters.values():
             if param.required and param.name not in provided_params:
                 raise ValueError(f"Missing required parameter '{param.name}'")
-            raw_value = provided_params[param.name]
+            # Use .get() to safely access optional parameters
+            raw_value = provided_params.get(param.name)
+            if raw_value is None:
+                # Skip optional parameters that weren't provided
+                continue
             coerced_value = self._coerce_value(raw_value, param.annotation)
             for node_id, input_name in param.bindings:
                 workflow[node_id]["inputs"][input_name] = coerced_value
@@ -189,22 +193,28 @@ class WorkflowManager:
         return DEFAULT_OUTPUT_KEYS
 
     def _coerce_value(self, value: Any, annotation: type):
-        if annotation is str:
-            return str(value)
-        if annotation is int:
-            return int(value)
-        if annotation is float:
-            return float(value)
-        if annotation is bool:
-            if isinstance(value, bool):
-                return value
-            if isinstance(value, str):
-                return value.strip().lower() in {"1", "true", "yes", "y"}
-            return bool(value)
-        return value
+        """Coerce a value to the specified type with proper error handling."""
+        try:
+            if annotation is str:
+                return str(value)
+            if annotation is int:
+                return int(value)
+            if annotation is float:
+                return float(value)
+            if annotation is bool:
+                if isinstance(value, bool):
+                    return value
+                if isinstance(value, str):
+                    return value.strip().lower() in {"1", "true", "yes", "y"}
+                return bool(value)
+            return value
+        except (ValueError, TypeError) as e:
+            raise ValueError(f"Cannot convert {value!r} to {annotation.__name__}: {e}")
 
 # Global ComfyUI client (fallback since context isn’t available)
-comfyui_client = ComfyUIClient("http://thor:8188")
+import os
+comfyui_url = os.getenv("COMFYUI_URL", "http://localhost:8188")
+comfyui_client = ComfyUIClient(comfyui_url)
 workflow_manager = WorkflowManager(WORKFLOW_DIR)
 
 # Define application context (for future use)
@@ -225,8 +235,15 @@ async def app_lifespan(server: FastMCP) -> AsyncIterator[AppContext]:
         # Shutdown: Cleanup (if needed)
         logger.info("Shutting down MCP server")
 
-# Initialize FastMCP with lifespan
-mcp = FastMCP("ComfyUI_MCP_Server", lifespan=app_lifespan)
+# Initialize FastMCP with lifespan and port configuration
+# Using port 9000 for consistency with previous version
+# Enable stateless_http to avoid requiring session management
+mcp = FastMCP(
+    "ComfyUI_MCP_Server",
+    lifespan=app_lifespan,
+    port=9000,
+    stateless_http=True
+)
 
 
 def _register_workflow_tool(definition: WorkflowToolDefinition):
@@ -241,6 +258,7 @@ def _register_workflow_tool(definition: WorkflowToolDefinition):
             )
             return {
                 "asset_url": result["asset_url"],
+                "image_url": result["asset_url"],  # Backward compatibility
                 "workflow_id": definition.workflow_id,
                 "tool": definition.tool_name,
             }
@@ -282,4 +300,13 @@ else:
     )
 
 if __name__ == "__main__":
-    mcp.run(transport="streamable-http")
+    import sys
+    # Check if running as MCP command (stdio) or standalone (streamable-http)
+    # When run as command by MCP client (like Cursor), use stdio transport
+    # When run standalone, use streamable-http for HTTP access
+    if len(sys.argv) > 1 and sys.argv[1] == "--stdio":
+        logger.info("Starting MCP server with stdio transport (for MCP clients)")
+        mcp.run(transport="stdio")
+    else:
+        logger.info("Starting MCP server with streamable-http transport on http://127.0.0.1:9000/mcp")
+        mcp.run(transport="streamable-http")

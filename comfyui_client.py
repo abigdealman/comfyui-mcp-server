@@ -22,22 +22,55 @@ class ComfyUIClient:
     def _get_available_models(self):
         """Fetch list of available checkpoint models from ComfyUI"""
         try:
-            response = requests.get(f"{self.base_url}/object_info/CheckpointLoaderSimple")
+            response = requests.get(f"{self.base_url}/object_info/CheckpointLoaderSimple", timeout=10)
             if response.status_code != 200:
                 logger.warning("Failed to fetch model list; using default handling")
                 return []
             data = response.json()
-            models = data["CheckpointLoaderSimple"]["input"]["required"]["ckpt_name"][0]
-            logger.info(f"Available models: {models}")
-            return models
-        except Exception as e:
+            # Safe dictionary access with proper error handling
+            try:
+                checkpoint_info = data.get("CheckpointLoaderSimple", {})
+                if not isinstance(checkpoint_info, dict):
+                    logger.warning("Unexpected CheckpointLoaderSimple structure")
+                    return []
+                input_info = checkpoint_info.get("input", {})
+                if not isinstance(input_info, dict):
+                    logger.warning("Unexpected input structure")
+                    return []
+                required_info = input_info.get("required", {})
+                if not isinstance(required_info, dict):
+                    logger.warning("Unexpected required structure")
+                    return []
+                ckpt_name_info = required_info.get("ckpt_name", [])
+                if not isinstance(ckpt_name_info, list) or len(ckpt_name_info) == 0:
+                    logger.warning("No checkpoint models found in API response")
+                    return []
+                models = ckpt_name_info[0] if isinstance(ckpt_name_info[0], list) else ckpt_name_info
+                logger.info(f"Available models: {models}")
+                return models
+            except (KeyError, IndexError, TypeError) as e:
+                logger.warning(f"Unexpected API response structure: {e}")
+                return []
+        except requests.RequestException as e:
             logger.warning(f"Error fetching models: {e}")
             return []
 
     def generate_image(self, prompt, width, height, workflow_id="basic_api_test", model=None):
         try:
-            workflow_file = f"workflows/{workflow_id}.json"
-            with open(workflow_file, "r") as f:
+            # Prevent path traversal attacks by validating workflow_id
+            from pathlib import Path
+            workflows_dir = Path("workflows").resolve()
+            workflow_path = (workflows_dir / f"{workflow_id}.json").resolve()
+            # Ensure the resolved path is within workflows_dir
+            try:
+                workflow_path.relative_to(workflows_dir)
+            except ValueError:
+                raise ValueError(f"Invalid workflow_id: {workflow_id} (path traversal detected)")
+            
+            if not workflow_path.exists():
+                raise FileNotFoundError(f"Workflow file '{workflow_path}' not found")
+            
+            with open(workflow_path, "r", encoding="utf-8") as f:
                 workflow = json.load(f)
 
             params = {"prompt": prompt, "width": width, "height": height}
@@ -86,34 +119,71 @@ class ComfyUIClient:
 
     def _queue_workflow(self, workflow: Dict[str, Any]):
         logger.info("Submitting workflow to ComfyUI...")
-        response = requests.post(f"{self.base_url}/prompt", json={"prompt": workflow})
+        response = requests.post(f"{self.base_url}/prompt", json={"prompt": workflow}, timeout=30)
         if response.status_code != 200:
             raise Exception(f"Failed to queue workflow: {response.status_code} - {response.text}")
-        prompt_id = response.json()["prompt_id"]
+        try:
+            response_data = response.json()
+            prompt_id = response_data.get("prompt_id")
+            if not prompt_id:
+                raise Exception("Response missing prompt_id")
+        except (KeyError, ValueError) as e:
+            raise Exception(f"Invalid response format from ComfyUI: {e}")
         logger.info(f"Queued workflow with prompt_id: {prompt_id}")
         return prompt_id
 
     def _wait_for_prompt(self, prompt_id: str, max_attempts: int = 30):
         for attempt in range(max_attempts):
-            response = requests.get(f"{self.base_url}/history/{prompt_id}")
-            if response.status_code != 200:
-                logger.warning("History endpoint returned %s on attempt %s", response.status_code, attempt + 1)
-            else:
+            try:
+                response = requests.get(f"{self.base_url}/history/{prompt_id}", timeout=10)
+                if response.status_code != 200:
+                    logger.warning("History endpoint returned %s on attempt %s", response.status_code, attempt + 1)
+                    time.sleep(1)
+                    continue
+                
                 history = response.json()
-                if history.get(prompt_id):
-                    outputs = history[prompt_id]["outputs"]
-                    logger.info("Workflow outputs: %s", json.dumps(outputs, indent=2))
-                    return outputs
-            time.sleep(1)
-        raise Exception(f"Workflow {prompt_id} didn’t complete within {max_attempts} seconds")
+                if not isinstance(history, dict):
+                    logger.warning("Invalid history response format on attempt %s", attempt + 1)
+                    time.sleep(1)
+                    continue
+                
+                if prompt_id not in history:
+                    time.sleep(1)
+                    continue
+                
+                prompt_data = history[prompt_id]
+                if not isinstance(prompt_data, dict) or "outputs" not in prompt_data:
+                    logger.warning("Prompt data missing outputs on attempt %s", attempt + 1)
+                    time.sleep(1)
+                    continue
+                
+                outputs = prompt_data["outputs"]
+                logger.info("Workflow outputs: %s", json.dumps(outputs, indent=2))
+                return outputs
+            except requests.RequestException as e:
+                logger.warning("Request error on attempt %s: %s", attempt + 1, e)
+                time.sleep(1)
+                continue
+            except (ValueError, KeyError) as e:
+                logger.warning("JSON parsing error on attempt %s: %s", attempt + 1, e)
+                time.sleep(1)
+                continue
+        
+        raise Exception(f"Workflow {prompt_id} didn't complete within {max_attempts} seconds")
 
     def _extract_first_asset_url(self, outputs: Dict[str, Any], preferred_output_keys: Sequence[str]):
         for node_output in outputs.values():
+            if not isinstance(node_output, dict):
+                continue
             for key in preferred_output_keys:
                 assets = node_output.get(key)
-                if assets:
+                if assets and isinstance(assets, list) and len(assets) > 0:
                     asset = assets[0]
-                    filename = asset["filename"]
+                    if not isinstance(asset, dict):
+                        continue
+                    filename = asset.get("filename")
+                    if not filename:
+                        continue
                     subfolder = asset.get("subfolder", "")
                     output_type = asset.get("type", "output")
                     return f"{self.base_url}/view?filename={filename}&subfolder={subfolder}&type={output_type}"

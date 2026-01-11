@@ -4,16 +4,17 @@ A lightweight Python-based MCP (Model Context Protocol) server that interfaces w
 
 ## Overview
 
-This project enables AI agents to send generation requests to ComfyUI using the MCP protocol over WebSocket. It supports:
+This project enables AI agents to send generation requests to ComfyUI using the MCP (Model Context Protocol) over HTTP. It supports:
 - Flexible workflow selection (e.g., the bundled `generate_image.json` and `generate_song.json`).
 - Dynamic parameters (text prompts, tags, lyrics, dimensions, etc.) inferred from workflow placeholders.
 - Automatic asset URL routing—image workflows return PNG/JPEG URLs, audio workflows return MP3 URLs.
+- Standard MCP protocol using streamable-http transport for cloud-ready scalability.
 
 ## Prerequisites
 
 - **Python 3.10+**
 - **ComfyUI**: Installed and running locally (e.g., on `localhost:8188`).
-- **Dependencies**: `requests`, `websockets`, `mcp` (install via pip).
+- **Dependencies**: `requests`, `mcp` (install via pip).
 
 ## Setup
 
@@ -23,7 +24,7 @@ This project enables AI agents to send generation requests to ComfyUI using the 
 
 2. **Install Dependencies**:
 
-   pip install requests websockets mcp
+   pip install requests mcp
 
 
 3. **Start ComfyUI**:
@@ -41,33 +42,88 @@ This project enables AI agents to send generation requests to ComfyUI using the 
 ## Usage
 
 1. **Run the MCP Server**:
+   ```bash
    python server.py
+   ```
 
-- Listens on `ws://localhost:9000`.
+   The server will start and listen on `http://127.0.0.1:9000/mcp` using the streamable-http transport.
 
 2. **Test with the Client**:
+   ```bash
    python client.py
+   ```
 
-- Sends a sample request: `"a dog wearing sunglasses"` with `512x512` using `sd_xl_base_1.0.safetensors`.
-- Output example:
-  ```
-  Response from server:
-  {
-    "image_url": "http://localhost:8188/view?filename=ComfyUI_00001_.png&subfolder=&type=output"
-  }
-  ```
+   The test client will:
+   - List all available tools from the server
+   - Call the `generate_image` tool (or first available tool) with test parameters
+   - Display the generated asset URL
 
-- Modify `client.py`’s `payload` to change `prompt`, `width`, `height`, `workflow_id`, or model-specific settings.
-- Example:
-  ```
-  "params": json.dumps({
-      "prompt": "a cat in space",
-      "width": 768,
-      "height": 768,
-      "workflow_id": "generate_image",
-      "model": "v1-5-pruned-emaonly.ckpt"
-  })
-  ```
+   Example output:
+   ```
+   Available tools (1):
+     - generate_image: Execute the 'generate image' ComfyUI workflow.
+   
+   Calling tool 'generate_image' with arguments:
+   {
+     "prompt": "an english mastiff dog sitting on a large boulder, bright shiny day",
+     "width": 512,
+     "height": 512
+   }
+   
+   Response from server:
+   {
+     "asset_url": "http://localhost:8188/view?filename=ComfyUI_00001_.png&subfolder=&type=output",
+     "workflow_id": "generate_image",
+     "tool": "generate_image"
+   }
+   ```
+
+3. **Connect from Your Own Client**:
+
+   The server uses standard HTTP with JSON-RPC protocol. You can connect using any HTTP client:
+
+   ```python
+   import requests
+   
+   response = requests.post(
+       "http://127.0.0.1:9000/mcp",
+       json={
+           "jsonrpc": "2.0",
+           "id": 1,
+           "method": "tools/call",
+           "params": {
+               "name": "generate_image",
+               "arguments": {
+                   "prompt": "a beautiful landscape",
+                   "width": 512,
+                   "height": 512
+               }
+           }
+       }
+   )
+   
+   result = response.json()
+   print(result["result"]["asset_url"])
+   ```
+
+   Or using curl:
+   ```bash
+   curl -X POST http://127.0.0.1:9000/mcp \
+     -H "Content-Type: application/json" \
+     -d '{
+       "jsonrpc": "2.0",
+       "id": 1,
+       "method": "tools/call",
+       "params": {
+         "name": "generate_image",
+         "arguments": {
+           "prompt": "a cat in space",
+           "width": 768,
+           "height": 768
+         }
+       }
+     }'
+   ```
 
 ### Bundled example workflows
 
@@ -87,16 +143,19 @@ Add additional API-format workflows following the placeholder convention below t
 
 ## Project Structure
 
-- `server.py`: MCP server with WebSocket transport and lifecycle support.
-- `comfyui_client.py`: Interfaces with ComfyUI’s API, handles workflow queuing.
-- `client.py`: Test client for sending MCP requests.
+- `server.py`: MCP server with streamable-http transport and lifecycle support.
+- `comfyui_client.py`: Interfaces with ComfyUI's API, handles workflow queuing.
+- `client.py`: HTTP-based test client for sending MCP requests.
 - `workflows/`: Directory for API-format workflow JSON files.
 
 ## Notes
 
 - Ensure your chosen `model` (e.g., `v1-5-pruned-emaonly.ckpt`) exists in `<ComfyUI_dir>/models/checkpoints/`.
-- The MCP SDK lacks native WebSocket transport; this uses a custom implementation.
-- For custom workflows, adjust node IDs in `comfyui_client.py`’s `DEFAULT_MAPPING` if needed.
+- The server uses **streamable-http** transport (HTTP-based, not WebSocket) for better scalability and cloud deployment.
+- Server listens on `http://127.0.0.1:9000/mcp` by default (port 9000 for consistency).
+- Workflows are automatically discovered from the `workflows/` directory - no code changes needed to add new workflows.
+- The server uses JSON-RPC protocol (MCP standard) for all communication.
+- For custom workflows, use `PARAM_*` placeholders in workflow JSON files to expose parameters as tool arguments.
 
 ## Contributing
 
