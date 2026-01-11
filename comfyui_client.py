@@ -2,6 +2,7 @@ import requests
 import json
 import time
 import logging
+from typing import Any, Dict, Sequence
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("ComfyUIClient")
@@ -56,29 +57,12 @@ class ComfyUIClient:
                         raise Exception(f"Node {node_id} not found in workflow {workflow_id}")
                     workflow[node_id]["inputs"][input_key] = value
 
-            logger.info(f"Submitting workflow {workflow_id} to ComfyUI...")
-            response = requests.post(f"{self.base_url}/prompt", json={"prompt": workflow})
-            if response.status_code != 200:
-                raise Exception(f"Failed to queue workflow: {response.status_code} - {response.text}")
-
-            prompt_id = response.json()["prompt_id"]
-            logger.info(f"Queued workflow with prompt_id: {prompt_id}")
-
-            max_attempts = 30
-            for _ in range(max_attempts):
-                history = requests.get(f"{self.base_url}/history/{prompt_id}").json()
-                if history.get(prompt_id):
-                    outputs = history[prompt_id]["outputs"]
-                    logger.info("Workflow outputs: %s", json.dumps(outputs, indent=2))
-                    image_node = next((nid for nid, out in outputs.items() if "images" in out), None)
-                    if not image_node:
-                        raise Exception(f"No output node with images found: {outputs}")
-                    image_filename = outputs[image_node]["images"][0]["filename"]
-                    image_url = f"{self.base_url}/view?filename={image_filename}&subfolder=&type=output"
-                    logger.info(f"Generated image URL: {image_url}")
-                    return image_url
-                time.sleep(1)
-            raise Exception(f"Workflow {prompt_id} didn’t complete within {max_attempts} seconds")
+            result = self.run_custom_workflow(
+                workflow,
+                preferred_output_keys=("images", "image", "gifs", "gif")
+            )
+            logger.info(f"Generated image URL: {result['asset_url']}")
+            return result["asset_url"]
 
         except FileNotFoundError:
             raise Exception(f"Workflow file '{workflow_file}' not found")
@@ -86,3 +70,51 @@ class ComfyUIClient:
             raise Exception(f"Workflow error - invalid node or input: {e}")
         except requests.RequestException as e:
             raise Exception(f"ComfyUI API error: {e}")
+
+    def run_custom_workflow(self, workflow: Dict[str, Any], preferred_output_keys: Sequence[str] | None = None, max_attempts: int = 30):
+        if preferred_output_keys is None:
+            preferred_output_keys = ("images", "image", "gifs", "gif", "audio", "audios", "files")
+
+        prompt_id = self._queue_workflow(workflow)
+        outputs = self._wait_for_prompt(prompt_id, max_attempts=max_attempts)
+        asset_url = self._extract_first_asset_url(outputs, preferred_output_keys)
+        return {
+            "asset_url": asset_url,
+            "prompt_id": prompt_id,
+            "raw_outputs": outputs
+        }
+
+    def _queue_workflow(self, workflow: Dict[str, Any]):
+        logger.info("Submitting workflow to ComfyUI...")
+        response = requests.post(f"{self.base_url}/prompt", json={"prompt": workflow})
+        if response.status_code != 200:
+            raise Exception(f"Failed to queue workflow: {response.status_code} - {response.text}")
+        prompt_id = response.json()["prompt_id"]
+        logger.info(f"Queued workflow with prompt_id: {prompt_id}")
+        return prompt_id
+
+    def _wait_for_prompt(self, prompt_id: str, max_attempts: int = 30):
+        for attempt in range(max_attempts):
+            response = requests.get(f"{self.base_url}/history/{prompt_id}")
+            if response.status_code != 200:
+                logger.warning("History endpoint returned %s on attempt %s", response.status_code, attempt + 1)
+            else:
+                history = response.json()
+                if history.get(prompt_id):
+                    outputs = history[prompt_id]["outputs"]
+                    logger.info("Workflow outputs: %s", json.dumps(outputs, indent=2))
+                    return outputs
+            time.sleep(1)
+        raise Exception(f"Workflow {prompt_id} didn’t complete within {max_attempts} seconds")
+
+    def _extract_first_asset_url(self, outputs: Dict[str, Any], preferred_output_keys: Sequence[str]):
+        for node_output in outputs.values():
+            for key in preferred_output_keys:
+                assets = node_output.get(key)
+                if assets:
+                    asset = assets[0]
+                    filename = asset["filename"]
+                    subfolder = asset.get("subfolder", "")
+                    output_type = asset.get("type", "output")
+                    return f"{self.base_url}/view?filename={filename}&subfolder={subfolder}&type={output_type}"
+        raise Exception(f"No outputs matched preferred keys: {preferred_output_keys}")

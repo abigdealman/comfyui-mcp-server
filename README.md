@@ -4,10 +4,10 @@ A lightweight Python-based MCP (Model Context Protocol) server that interfaces w
 
 ## Overview
 
-This project enables AI agents to send image generation requests to ComfyUI using the MCP protocol over WebSocket. It supports:
-- Flexible workflow selection (e.g., `basic_api_test.json`).
-- Dynamic parameters: `prompt`, `width`, `height`, and `model`.
-- Returns image URLs served by ComfyUI.
+This project enables AI agents to send generation requests to ComfyUI using the MCP protocol over WebSocket. It supports:
+- Flexible workflow selection (e.g., the bundled `generate_image.json` and `generate_song.json`).
+- Dynamic parameters (text prompts, tags, lyrics, dimensions, etc.) inferred from workflow placeholders.
+- Automatic asset URL routing—image workflows return PNG/JPEG URLs, audio workflows return MP3 URLs.
 
 ## Prerequisites
 
@@ -35,7 +35,7 @@ This project enables AI agents to send image generation requests to ComfyUI usin
   ```
 
 4. **Prepare Workflows**:
-- Place API-format workflow files (e.g., `basic_api_test.json`) in the `workflows/` directory.
+- Place API-format workflow files (e.g., `generate_image.json`, `generate_song.json`, or your own) in the `workflows/` directory.
 - Export workflows from ComfyUI’s UI with “Save (API Format)” (enable dev mode in settings).
 
 ## Usage
@@ -57,18 +57,33 @@ This project enables AI agents to send image generation requests to ComfyUI usin
   }
   ```
 
-3. **Custom Requests**:
-- Modify `client.py`’s `payload` to change `prompt`, `width`, `height`, `workflow_id`, or `model`.
+- Modify `client.py`’s `payload` to change `prompt`, `width`, `height`, `workflow_id`, or model-specific settings.
 - Example:
   ```
   "params": json.dumps({
       "prompt": "a cat in space",
       "width": 768,
       "height": 768,
-      "workflow_id": "basic_api_test",
+      "workflow_id": "generate_image",
       "model": "v1-5-pruned-emaonly.ckpt"
   })
   ```
+
+### Bundled example workflows
+
+- `generate_image.json`: Minimal Stable Diffusion 1.5 image sampler that exposes `prompt`, `width`, `height`, and `model` parameters. Produces PNG URLs.
+- `generate_song.json`: AceStep audio text-to-song workflow that exposes `tags` and `lyrics` parameters and returns an MP3 URL.
+
+Add additional API-format workflows following the placeholder convention below to expose new MCP tools automatically.
+
+### Workflow-backed MCP tools
+
+- Any workflow JSON placed in `workflows/` that contains placeholders such as `PARAM_PROMPT`, `PARAM_TAGS`, or `PARAM_LYRICS` is exposed automatically as an MCP tool.
+- Placeholders live inside node inputs and follow the convention `PARAM_<TYPE?>_<NAME>` where `<TYPE?>` is optional. Supported type hints: `STR`, `STRING`, `TEXT`, `INT`, `FLOAT`, and `BOOL`.
+- Example: `"tags": "PARAM_TAGS"` creates a `tags: str` argument, while `"steps": "PARAM_INT_STEPS"` becomes an `int` argument.
+- The tool name defaults to the workflow filename (normalized to snake_case). Rename the JSON file if you want a friendlier MCP tool name.
+- Outputs are inferred heuristically: workflows that contain audio nodes return audio URLs, otherwise image URLs are returned.
+- Add more workflows and they will show up without extra Python changes, provided they use the placeholder convention above.
 
 ## Project Structure
 
