@@ -250,11 +250,6 @@ comfyui-mcp-server/
 - `regenerate` uses stored workflow data to recreate assets with parameter overrides
 - Session isolation: `list_assets` can filter by session for clean AI agent context
 
-## Documentation
-
-- [API Reference](docs/REFERENCE.md) - Complete tool reference and parameters
-- [Architecture](docs/ARCHITECTURE.md) - Design decisions and system overview
-
 ## Contributing
 
 Issues and pull requests are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for development guidelines.
