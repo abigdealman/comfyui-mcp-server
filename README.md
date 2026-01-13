@@ -46,17 +46,26 @@ http://127.0.0.1:9000/mcp
 Run the included test client:
 
 ```bash
+# Use default prompt
 python test_client.py
+
+# Or provide your own prompt
+python test_client.py -p "a beautiful sunset over mountains"
+python test_client.py --prompt "a cat on a mat"
 ```
 
 `test_client.py` will:
 
 * connect to the MCP server
 * list available tools
-* run `generate_image`
+* fetch and display server defaults (width, height, steps, model, etc.)
+* run `generate_image` with your prompt (or a default)
+* automatically use server defaults for all other parameters
 * print the resulting asset information
 
 If this step succeeds, the system is working.
+
+**Note:** The test client respects server defaults configured via config files, environment variables, or `set_defaults` calls. Only the `prompt` parameter is required; all other parameters use server defaults automatically.
 
 That’s it.
 
@@ -134,7 +143,7 @@ You can still generate an image with a single call, but you now have the option 
 ### Looking for the Old Behavior?
 If you want the minimal, single-shot behavior from earlier versions:
 - run `test_client.py` (this mirrors the original usage pattern)
-- call `generate_image` with defaults
+- call `generate_image` with just a prompt (server defaults handle the rest)
 - ignore the additional tools
 
 No migration is required unless you want the new capabilities.

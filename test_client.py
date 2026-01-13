@@ -172,18 +172,40 @@ def test_generate_image(prompt: Optional[str] = None):
         print("\n❌ No tools found to test.")
         return
 
+    # Fetch server defaults
+    print(f"\n2)  Fetching server defaults...")
+    defaults_result = call_tool("get_defaults", {})
+    image_defaults = {}
+    if defaults_result and "image" in defaults_result:
+        image_defaults = defaults_result["image"]
+        print(f"   Using server defaults: width={image_defaults.get('width', 'N/A')}, "
+              f"height={image_defaults.get('height', 'N/A')}, "
+              f"steps={image_defaults.get('steps', 'N/A')}, "
+              f"model={image_defaults.get('model', 'N/A')}")
+    else:
+        print("   ⚠️  Could not fetch defaults, using fallback values")
+        image_defaults = {"width": 512, "height": 512}
+
     # Call the tool
-    print(f"\n2)  Testing tool '{tool_name}'...")
+    print(f"\n3)  Testing tool '{tool_name}'...")
     
     # Use provided prompt or default
     default_prompt = "an english mastiff dog, mouth closed, standing majestically in a grassy field, bright shiny day, forest background"
     prompt_to_use = prompt if prompt is not None else default_prompt
     
+    # Build arguments - only include prompt (required), let server use defaults for the rest
+    # The server will automatically apply defaults for width, height, steps, etc.
     arguments = {
         "prompt": prompt_to_use,
-        "width": 512,
-        "height": 512,
     }
+    
+    # Optionally, you could explicitly pass defaults if you want to show them:
+    # arguments.update({
+    #     "width": image_defaults.get("width"),
+    #     "height": image_defaults.get("height"),
+    #     "steps": image_defaults.get("steps"),
+    #     "model": image_defaults.get("model"),
+    # })
 
     result = call_tool(tool_name, arguments)
 
