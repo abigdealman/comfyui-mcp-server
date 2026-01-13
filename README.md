@@ -41,7 +41,7 @@ The server listens at:
 http://127.0.0.1:9000/mcp
 ```
 
-### 3) Verify it works (no AI client required)
+### 4) Verify it works (no AI client required)
 
 Run the included test client:
 
@@ -256,6 +256,7 @@ comfyui-mcp-server/
 
 ## Notes
 
+- The server binds to localhost by default. Do not expose it publicly without authentication or a reverse proxy.
 - Ensure your models exist in `<ComfyUI_dir>/models/checkpoints/`
 - Server uses **streamable-http** transport (HTTP-based, not WebSocket)
 - Workflows are auto-discovered - no code changes needed
@@ -268,7 +269,7 @@ comfyui-mcp-server/
 
 ## Known Limitations (v1.0)
 
-- **Ephemeral asset registry**: `asset_id` references are only valid while the MCP server is running (and until TTL expiry). After restart, previously-issued `asset_id`s can't be resolved.
+- **Ephemeral asset registry**: `asset_id` references are only valid while the MCP server is running (and until TTL expiry). After restart, previously-issued `asset_id`s can’t be resolved, and regenerate will fail for those assets.
 
 ## Contributing
 
