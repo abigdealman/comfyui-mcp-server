@@ -1,6 +1,28 @@
 # ComfyUI MCP Server
 
-A lightweight Python-based MCP (Model Context Protocol) server that interfaces with a local [ComfyUI](https://github.com/comfyanonymous/ComfyUI) instance to generate images, audio, and video programmatically via AI agent requests.
+A Python-based MCP (Model Context Protocol) server that enables AI agents to control ComfyUI for generating images, audio, and video with full job management, asset tracking, and iteration support.
+
+Built on a thin adapter architecture that delegates execution to ComfyUI while providing AI-friendly conveniences like session isolation, smart defaults, and regeneration with parameter overrides.
+
+## Why This Server?
+
+**AI-Optimized Design:**
+- 🧠 **Iteration Support** - Regenerate with parameter overrides without re-specifying everything
+- 🎯 **Session Isolation** - Filter assets by conversation for clean context
+- 📊 **Job Management** - Poll status, cancel jobs, track progress
+- 🔍 **Asset Browsing** - List and search generated content with full provenance
+
+**Smart Workflow System:**
+- 🔧 **Auto-Discovery** - Drop workflow JSON in `/workflows`, instantly available as tools
+- ⚙️ **Smart Defaults** - 5-tier configuration (per-call → runtime → config → env → hardcoded)
+- 📝 **PARAM_* System** - Expose workflow parameters without code changes
+- 🎨 **Custom Workflows** - Run any ComfyUI workflow with dynamic parameters
+
+**Production Architecture:**
+- 🏗️ **Thin Adapter** - Delegates to ComfyUI for execution, no reimplementation
+- 📦 **Full Provenance** - Complete history and workflow snapshots for every asset
+- 🚀 **Async-First** - Built for concurrent requests and long-running jobs
+- 🔒 **Stable Identity** - Assets survive hostname changes and restarts
 
 ## Quick Start
 
@@ -28,14 +50,14 @@ A lightweight Python-based MCP (Model Context Protocol) server that interfaces w
 
 ## Features
 
-- **Image Generation**: Generate images using Stable Diffusion workflows
-- **Audio Generation**: Generate songs using AceStep workflows  
+- **Image & Audio Generation**: Generate images (Stable Diffusion) and audio (AceStep) via simple tool calls
+- **Iteration & Regeneration**: Regenerate existing assets with parameter overrides for easy refinement
 - **Inline Image Viewing**: View generated images directly in chat with `view_image`
-- **Flexible Workflows**: Add custom workflows by placing JSON files in `workflows/`
-- **Smart Defaults**: Automatic parameter defaults with configurable precedence
-- **Asset Management**: Automatic asset tracking with expiration and stable identity
-- **Job Management**: Queue status, job polling, and cancellation support
-- **Full Provenance**: Complete workflow history and parameter tracking for reproducibility
+- **Custom Workflows**: Auto-discover workflows by placing JSON files in `workflows/` - no code changes needed
+- **Smart Defaults**: 5-tier configuration system (per-call → runtime → config → env → hardcoded)
+- **Asset Management**: Automatic asset tracking with expiration, stable identity, and full provenance
+- **Job Management**: Queue status, job polling, cancellation, and progress tracking
+- **Session Isolation**: Filter assets by conversation for clean AI agent context
 
 ## Basic Usage
 
@@ -108,6 +130,25 @@ print(f"Generated with workflow: {metadata['workflow_id']}")
 print(f"Parameters: {metadata['submitted_workflow']}")
 ```
 
+### Regenerate an Asset
+
+```python
+# Generate an image
+result = generate_image(prompt="a sunset", steps=20)
+
+# Regenerate with higher quality settings
+regenerate_result = regenerate(
+    asset_id=result["asset_id"],
+    param_overrides={"steps": 30, "cfg": 10.0}
+)
+
+# Regenerate with a different prompt
+regenerate_result = regenerate(
+    asset_id=result["asset_id"],
+    param_overrides={"prompt": "a beautiful sunset, oil painting style"}
+)
+```
+
 ### Check Queue Status
 
 ```python
@@ -122,6 +163,7 @@ print(f"Running: {queue['running_count']}, Pending: {queue['pending_count']}")
 
 - **`generate_image`**: Generate images (requires `prompt`)
 - **`generate_song`**: Generate audio (requires `tags` and `lyrics`)
+- **`regenerate`**: Regenerate an existing asset with optional parameter overrides (requires `asset_id`)
 
 ### Viewing Tools
 
@@ -323,6 +365,8 @@ All generation tools return:
 - `view_image` only supports images (PNG, JPEG, WebP, GIF)
 - Asset identity uses `(filename, subfolder, type)` instead of URL for robustness
 - Full workflow history is stored for provenance and reproducibility
+- `regenerate` uses stored workflow data to recreate assets with parameter overrides
+- Session isolation: `list_assets` can filter by session for clean AI agent context
 
 ## Documentation
 
