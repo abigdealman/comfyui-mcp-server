@@ -557,7 +557,6 @@ get_defaults() -> dict
     "height": 720,
     "steps": 20,
     "cfg": 8.0,
-    "model": "wan2.2_vae.safetensors",
     "duration": 5,
     "fps": 16
   }
@@ -619,6 +618,45 @@ set_defaults(
     persist=True
 )
 ```
+
+### Default Model Validation
+
+The server automatically validates that default models exist in ComfyUI's checkpoints directory. This prevents errors at generation time and provides clear feedback about misconfiguration.
+
+**Startup Validation:**
+- On server startup, all default models (from hardcoded, config file, and environment variables) are validated
+- Missing models are logged as warnings (non-fatal) - the server still starts successfully
+- Warnings include the model name, source (hardcoded/config/env), and namespace (image/audio/video)
+
+**Generation-Time Validation:**
+- Before rendering a workflow, the resolved model (after applying precedence rules) is checked
+- If the model is invalid, generation fails immediately with a clear error message
+- Error messages include:
+  - The model name that was requested
+  - Where it came from (runtime/config/env/hardcoded)
+  - A sample of available models (first 5)
+  - Instructions to use `list_models` or `set_defaults`
+
+**Refresh-on-Failure:**
+- If ComfyUI returns an error suggesting a missing model, the server automatically:
+  1. Refreshes the cached model list from ComfyUI
+  2. Re-validates the model
+  3. If still invalid, returns a clear error message
+- This handles cases where models are added/removed after server startup
+
+**Example Error Messages:**
+
+```json
+{
+  "error": "Default model 'v1-5-pruned-emaonly.ckpt' (from hardcoded defaults) not found in ComfyUI checkpoints. Set a valid model via `set_defaults`, config file, or env var. Try `list_models` to see available checkpoints. Available models: ['sd_xl_base_1.0.safetensors', 'cyberrealisticPony_v8.safetensors', ...]"
+}
+```
+
+**Best Practices:**
+- Use `list_models` to see available checkpoints before setting defaults
+- Set defaults via `set_defaults` with `persist=True` to save valid models
+- Check server startup logs for validation warnings
+- The validation system uses a cached model set for fast checks (no per-call overhead)
 
 ## Workflow Tools
 
@@ -932,6 +970,13 @@ All tools return errors in consistent format:
 ```
 
 **Invalid Model:**
+```json
+{
+  "error": "Default model 'invalid.ckpt' (from hardcoded defaults) not found in ComfyUI checkpoints. Set a valid model via `set_defaults`, config file, or env var. Try `list_models` to see available checkpoints. Available models: ['sd_xl_base_1.0.safetensors', 'v1-5-pruned-emaonly.ckpt', ...]"
+}
+```
+
+Or when using `set_defaults`:
 ```json
 {
   "success": false,

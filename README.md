@@ -1,5 +1,7 @@
 # ComfyUI MCP Server
 
+> Generate and refine AI images/audio/video through natural conversation
+
 A lightweight MCP (Model Context Protocol) server that lets AI agents generate and iteratively refine images, audio, and video using a local ComfyUI instance.
 
 You run the server, connect a client, and issue tool calls. Everything else is optional depth.
@@ -81,7 +83,7 @@ Create a project-scoped `.mcp.json` file:
 {
   "mcpServers": {
     "comfyui-mcp-server": {
-      "type": "http",
+      "type": "streamable-http",
       "url": "http://127.0.0.1:9000/mcp"
     }
   }
@@ -267,6 +269,33 @@ comfyui-mcp-server/
 - `regenerate` uses stored workflow data to recreate assets with parameter overrides
 - Session isolation: `list_assets` can filter by session for clean AI agent context
 
+## Troubleshooting
+
+**Server won't start:**
+- Check ComfyUI is running on port 8188 (default)
+- Verify Python 3.8+ is installed (`python --version`)
+- Check all dependencies are installed: `pip install -r requirements.txt`
+- Check server logs for specific error messages
+
+**Client can't connect:**
+- Verify server shows "Server running at http://127.0.0.1:9000/mcp" in the console
+- Test server directly: `curl http://127.0.0.1:9000/mcp` (should return MCP response)
+- Check `.mcp.json` is in project root (or correct location for your client)
+- Verify transport type is `"streamable-http"` (not `"http"` or `"sse"`)
+- For Cursor-specific issues, see [docs/MCP_CONFIG_README.md](docs/MCP_CONFIG_README.md)
+
+**Tools not appearing:**
+- Check `workflows/` directory has JSON files with `PARAM_*` placeholders
+- Check server logs for workflow parsing errors
+- Verify ComfyUI has required custom nodes installed (if using custom workflows)
+- Restart the MCP server after adding new workflows
+
+**Asset not found errors:**
+- Assets expire after 24 hours by default (configurable via `COMFY_MCP_ASSET_TTL_HOURS`)
+- Assets are lost on server restart (ephemeral by design)
+- Use `get_asset_metadata` to verify asset exists before using `regenerate`
+- Check server logs to see if asset was registered successfully
+
 ## Known Limitations (v1.0)
 
 - **Ephemeral asset registry**: `asset_id` references are only valid while the MCP server is running (and until TTL expiry). After restart, previously-issued `asset_id`s can’t be resolved, and regenerate will fail for those assets.
@@ -277,7 +306,7 @@ Issues and pull requests are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for
 
 ## Acknowledgements
 
-- [@venetanji](https://github.com/venetanji) - streamable-http rewrite foundation & PARAM_* system
+- [@venetanji](https://github.com/venetanji) - streamable-http foundation & PARAM_* system
 
 ## Maintainer
 [@joenorton](https://github.com/joenorton)
