@@ -120,15 +120,11 @@ def wait_for_comfyui(base_url: str, max_retries: int = COMFYUI_MAX_RETRIES,
 print_startup_banner()
 
 # Check ComfyUI availability before initializing clients
+# IMPORTANT: Do not hard-exit on hosted platforms (e.g., Zeabur). We can still start the MCP server
+# and surface connection errors at tool-call time.
 if not check_comfyui_available(COMFYUI_URL):
     if not wait_for_comfyui(COMFYUI_URL):
-        print("\n" + "=" * 70)
-        print("[X] ERROR: ComfyUI is not available after all retry attempts!")
-        print("=" * 70)
-        print(f"  Please ensure ComfyUI is running at: {COMFYUI_URL}")
-        print("  Start ComfyUI first, then restart this server.")
-        print("=" * 70 + "\n")
-        sys.exit(1)
+        logger.warning("ComfyUI is not reachable at startup (%s). Starting MCP server anyway.", COMFYUI_URL)
 
 # Global ComfyUI client (fallback since context isn't available)
 comfyui_client = ComfyUIClient(COMFYUI_URL)
@@ -180,15 +176,23 @@ async def app_lifespan(server: FastMCP) -> AsyncIterator[AppContext]:
         logger.info("Shutting down MCP server")
 
 
-# Initialize FastMCP with lifespan and port configuration
-# Using port 9000 for consistency with previous version
-# Enable stateless_http to avoid requiring session management
-mcp = FastMCP(
-    "ComfyUI_MCP_Server",
-    lifespan=app_lifespan,
-    port=9000,
-    stateless_http=True
-)
+# MCP bind configuration (Zeabur/containers)
+MCP_HOST = os.getenv("MCP_HOST", os.getenv("HOST", "0.0.0.0"))
+MCP_PORT = int(os.getenv("PORT", os.getenv("MCP_PORT", "8080")))
+
+# Initialize FastMCP with lifespan and bind configuration.
+# Different versions of `mcp` accept bind params in different places, so we try both safely.
+_mcp_kwargs = dict(lifespan=app_lifespan, stateless_http=True)
+try:
+    mcp = FastMCP("ComfyUI_MCP_Server", host=MCP_HOST, port=MCP_PORT, **_mcp_kwargs)
+except TypeError:
+    # Fallback: no host kwarg on constructor. Provide port if supported and let the server read env.
+    try:
+        mcp = FastMCP("ComfyUI_MCP_Server", port=MCP_PORT, **_mcp_kwargs)
+    except TypeError:
+        mcp = FastMCP("ComfyUI_MCP_Server", **_mcp_kwargs)
+    os.environ["MCP_HOST"] = MCP_HOST
+    os.environ["MCP_PORT"] = str(MCP_PORT)
 
 # Register all MCP tools
 register_configuration_tools(mcp, comfyui_client, defaults_manager)
@@ -222,16 +226,9 @@ if __name__ == "__main__":
         print("[+] Server Ready".center(70))
         print("=" * 70)
         print(f"  Transport: streamable-http")
-        MCP_HOST = os.getenv("MCP_HOST", os.getenv("HOST", "0.0.0.0"))
-        MCP_PORT = int(os.getenv("PORT", os.getenv("MCP_PORT", "9000")))
         print(f"  Endpoint: http://{MCP_HOST}:{MCP_PORT}/mcp")
         print(f"[+] ComfyUI verified at: {COMFYUI_URL}")
         print("=" * 70 + "\n")
-
-        # Some versions of python-mcp do not accept host/port kwargs on FastMCP.run.
-        # They read these from environment instead, so we set them explicitly.
-        os.environ["MCP_HOST"] = MCP_HOST
-        os.environ["MCP_PORT"] = str(MCP_PORT)
         logger.info(f"Starting MCP server with streamable-http transport on http://{MCP_HOST}:{MCP_PORT}/mcp")
         logger.info(f"ComfyUI verified at: {COMFYUI_URL}")
         mcp.run(transport="streamable-http")
