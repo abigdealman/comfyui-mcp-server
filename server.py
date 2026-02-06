@@ -36,9 +36,6 @@ ASSET_TTL_HOURS = int(os.getenv("COMFY_MCP_ASSET_TTL_HOURS", "24"))
 
 # ComfyUI connection configuration
 COMFYUI_URL = os.getenv("COMFYUI_URL", "http://localhost:8188")
-COMFYUI_VERIFY_SSL = os.getenv("COMFYUI_VERIFY_SSL", "true").lower() not in ("0","false","no")
-MCP_HOST = os.getenv("HOST", "0.0.0.0")
-MCP_PORT = int(os.getenv("PORT", "8080"))
 COMFYUI_MAX_RETRIES = 5  # Number of retry attempts
 COMFYUI_INITIAL_DELAY = 2  # Initial delay in seconds
 COMFYUI_MAX_DELAY = 16  # Maximum delay in seconds
@@ -122,12 +119,19 @@ def wait_for_comfyui(base_url: str, max_retries: int = COMFYUI_MAX_RETRIES,
 # Print startup banner
 print_startup_banner()
 
-# Optional: ComfyUI may be offline or its URL may change. Do NOT crash the server on startup.
+# Check ComfyUI availability before initializing clients
 if not check_comfyui_available(COMFYUI_URL):
-    logger.warning("ComfyUI not reachable at startup (%s). Server will still start; tools may fail until ComfyUI is reachable.", COMFYUI_URL)
+    if not wait_for_comfyui(COMFYUI_URL):
+        print("\n" + "=" * 70)
+        print("[X] ERROR: ComfyUI is not available after all retry attempts!")
+        print("=" * 70)
+        print(f"  Please ensure ComfyUI is running at: {COMFYUI_URL}")
+        print("  Start ComfyUI first, then restart this server.")
+        print("=" * 70 + "\n")
+        sys.exit(1)
 
 # Global ComfyUI client (fallback since context isn't available)
-comfyui_client = ComfyUIClient(COMFYUI_URL, verify_ssl=COMFYUI_VERIFY_SSL)
+comfyui_client = ComfyUIClient(COMFYUI_URL)
 workflow_manager = WorkflowManager(WORKFLOW_DIR)
 defaults_manager = DefaultsManager(comfyui_client)
 asset_registry = AssetRegistry(ttl_hours=ASSET_TTL_HOURS, comfyui_base_url=COMFYUI_URL)
@@ -182,8 +186,7 @@ async def app_lifespan(server: FastMCP) -> AsyncIterator[AppContext]:
 mcp = FastMCP(
     "ComfyUI_MCP_Server",
     lifespan=app_lifespan,
-    host=MCP_HOST,
-    port=MCP_PORT,
+    port=9000,
     stateless_http=True
 )
 
@@ -218,10 +221,17 @@ if __name__ == "__main__":
         print("\n" + "=" * 70)
         print("[+] Server Ready".center(70))
         print("=" * 70)
-        print(f"  Transport: streamable-http")
+                print(f"  Transport: streamable-http")
+        MCP_HOST = os.getenv("MCP_HOST", os.getenv("HOST", "0.0.0.0"))
+        MCP_PORT = int(os.getenv("PORT", os.getenv("MCP_PORT", "9000")))
         print(f"  Endpoint: http://{MCP_HOST}:{MCP_PORT}/mcp")
         print(f"[+] ComfyUI verified at: {COMFYUI_URL}")
-        print("=" * 70 + "\n")
-        logger.info("Starting MCP server with streamable-http transport on http://{MCP_HOST}:{MCP_PORT}/mcp")
+        print("=" * 70 + "
+")
+        # Some versions of python-mcp do not accept host/port kwargs on FastMCP.run.
+        # They read these from environment instead, so we set them explicitly.
+        os.environ["MCP_HOST"] = MCP_HOST
+        os.environ["MCP_PORT"] = str(MCP_PORT)
+        logger.info(f"Starting MCP server with streamable-http transport on http://{MCP_HOST}:{MCP_PORT}/mcp")
         logger.info(f"ComfyUI verified at: {COMFYUI_URL}")
-        mcp.run(transport="streamable-http", host=MCP_HOST, port=MCP_PORT)
+        mcp.run(transport="streamable-http")
