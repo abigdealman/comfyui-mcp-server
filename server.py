@@ -35,7 +35,10 @@ WORKFLOW_DIR = Path(os.getenv("COMFY_MCP_WORKFLOW_DIR", str(Path(__file__).paren
 ASSET_TTL_HOURS = int(os.getenv("COMFY_MCP_ASSET_TTL_HOURS", "24"))
 
 # ComfyUI connection configuration
-COMFYUI_URL = os.getenv("COMFYUI_URL", "https://wp08.unicorn.org.cn:19009")
+COMFYUI_URL = os.getenv("COMFYUI_URL", "http://localhost:8188")
+COMFYUI_VERIFY_SSL = os.getenv("COMFYUI_VERIFY_SSL", "true").lower() not in ("0","false","no")
+MCP_HOST = os.getenv("HOST", "0.0.0.0")
+MCP_PORT = int(os.getenv("PORT", "8080"))
 COMFYUI_MAX_RETRIES = 5  # Number of retry attempts
 COMFYUI_INITIAL_DELAY = 2  # Initial delay in seconds
 COMFYUI_MAX_DELAY = 16  # Maximum delay in seconds
@@ -43,20 +46,13 @@ COMFYUI_MAX_DELAY = 16  # Maximum delay in seconds
 # Publish configuration (optional env var for COMFYUI_OUTPUT_ROOT only)
 COMFYUI_OUTPUT_ROOT = os.getenv("COMFYUI_OUTPUT_ROOT")
 
-# SSL verification for HTTPS ComfyUI endpoints (set COMFYUI_VERIFY_SSL=false to disable)
-COMFYUI_VERIFY_SSL = os.getenv("COMFYUI_VERIFY_SSL", "true").lower() not in ("0", "false", "no")
-
-# HTTP server bind config (Zeabur/Render/etc. usually provide PORT)
-HOST = os.getenv("HOST", "0.0.0.0")
-PORT = int(os.getenv("PORT", "9000"))
-
 
 def print_startup_banner():
     """Print a nice startup banner for the server."""
     print("\n" + "=" * 70)
     print("[*] ComfyUI-MCP-Server".center(70))
     print("=" * 70)
-    print(f"  Connecting to ComfyUI at: {COMFYUI_URL} (verify_ssl={COMFYUI_VERIFY_SSL})")
+    print(f"  Connecting to ComfyUI at: {COMFYUI_URL}")
     print(f"  Workflow directory: {WORKFLOW_DIR}")
     print(f"  Asset TTL: {ASSET_TTL_HOURS} hours")
     print("=" * 70 + "\n")
@@ -126,16 +122,9 @@ def wait_for_comfyui(base_url: str, max_retries: int = COMFYUI_MAX_RETRIES,
 # Print startup banner
 print_startup_banner()
 
-# Check ComfyUI availability before initializing clients
+# Optional: ComfyUI may be offline or its URL may change. Do NOT crash the server on startup.
 if not check_comfyui_available(COMFYUI_URL):
-    if not wait_for_comfyui(COMFYUI_URL):
-        print("\n" + "=" * 70)
-        print("[X] ERROR: ComfyUI is not available after all retry attempts!")
-        print("=" * 70)
-        print(f"  Please ensure ComfyUI is running at: {COMFYUI_URL}")
-        print("  Start ComfyUI first, then restart this server.")
-        print("=" * 70 + "\n")
-        sys.exit(1)
+    logger.warning("ComfyUI not reachable at startup (%s). Server will still start; tools may fail until ComfyUI is reachable.", COMFYUI_URL)
 
 # Global ComfyUI client (fallback since context isn't available)
 comfyui_client = ComfyUIClient(COMFYUI_URL, verify_ssl=COMFYUI_VERIFY_SSL)
@@ -190,24 +179,13 @@ async def app_lifespan(server: FastMCP) -> AsyncIterator[AppContext]:
 # Initialize FastMCP with lifespan and port configuration
 # Using port 9000 for consistency with previous version
 # Enable stateless_http to avoid requiring session management
-# Initialize FastMCP with lifespan and port configuration
-# Note: Some MCP server versions support a "host" argument; we try it first for PaaS deployments.
-try:
-    mcp = FastMCP(
-        "ComfyUI_MCP_Server",
-        lifespan=app_lifespan,
-        host=HOST,
-        port=PORT,
-        stateless_http=True
-    )
-except TypeError:
-    # Fallback for older FastMCP versions that don't accept host=
-    mcp = FastMCP(
-        "ComfyUI_MCP_Server",
-        lifespan=app_lifespan,
-        port=PORT,
-        stateless_http=True
-    )
+mcp = FastMCP(
+    "ComfyUI_MCP_Server",
+    lifespan=app_lifespan,
+    host=MCP_HOST,
+    port=MCP_PORT,
+    stateless_http=True
+)
 
 # Register all MCP tools
 register_configuration_tools(mcp, comfyui_client, defaults_manager)
@@ -241,12 +219,9 @@ if __name__ == "__main__":
         print("[+] Server Ready".center(70))
         print("=" * 70)
         print(f"  Transport: streamable-http")
-        print(f"  Endpoint: http://{HOST}:{PORT}/mcp")
+        print(f"  Endpoint: http://{MCP_HOST}:{MCP_PORT}/mcp")
         print(f"[+] ComfyUI verified at: {COMFYUI_URL}")
         print("=" * 70 + "\n")
-        logger.info(f"Starting MCP server with streamable-http transport on http://{HOST}:{PORT}/mcp")
+        logger.info("Starting MCP server with streamable-http transport on http://{MCP_HOST}:{MCP_PORT}/mcp")
         logger.info(f"ComfyUI verified at: {COMFYUI_URL}")
-        try:
-            mcp.run(transport="streamable-http", host=HOST, port=PORT)
-        except TypeError:
-            mcp.run(transport="streamable-http")
+        mcp.run(transport="streamable-http", host=MCP_HOST, port=MCP_PORT)
