@@ -221,13 +221,13 @@ if __name__ == "__main__":
         print("\n" + "=" * 70)
         print("[+] Server Ready".center(70))
         print("=" * 70)
-                print(f"  Transport: streamable-http")
+        print(f"  Transport: streamable-http")
         MCP_HOST = os.getenv("MCP_HOST", os.getenv("HOST", "0.0.0.0"))
         MCP_PORT = int(os.getenv("PORT", os.getenv("MCP_PORT", "9000")))
         print(f"  Endpoint: http://{MCP_HOST}:{MCP_PORT}/mcp")
         print(f"[+] ComfyUI verified at: {COMFYUI_URL}")
-        print("=" * 70 + "
-")
+        print("=" * 70 + "\n")
+
         # Some versions of python-mcp do not accept host/port kwargs on FastMCP.run.
         # They read these from environment instead, so we set them explicitly.
         os.environ["MCP_HOST"] = MCP_HOST
